@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Amilthan\\\\Downloads\\\\coworks\\\\coworks\\\\services\" -Directory | ForEach-Object { Write-Output $_.Name })"
+    ]
+  }
+}
