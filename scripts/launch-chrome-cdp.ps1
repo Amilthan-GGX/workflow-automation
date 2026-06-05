@@ -47,12 +47,11 @@ if (-not (Test-Path $Chrome)) {
     Write-Error "Google Chrome not found. Install Chrome or set path in this script."
 }
 
-if (Get-Process -Name "chrome" -ErrorAction SilentlyContinue) {
-    Write-Error @"
-Chrome is running but CDP is not on port $Port.
-Quit ALL Chrome windows (Task Manager -> end every chrome.exe), then run:
-  npm run dev
-"@
+$existingChrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+if ($existingChrome) {
+    Write-Host "Chrome running without CDP — killing and relaunching with CDP..."
+    $existingChrome | Stop-Process -Force
+    Start-Sleep -Seconds 3
 }
 
 Write-Host "Starting Chrome profile '$Profile' with CDP on port $Port..."

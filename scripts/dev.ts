@@ -32,18 +32,54 @@ function isChromeRunning(): boolean {
   return r.status === 0;
 }
 
+async function killChrome(): Promise<void> {
+  if (isWin) {
+    spawnSync('taskkill', ['/F', '/IM', 'chrome.exe'], { encoding: 'utf8' });
+  } else {
+    spawnSync('pkill', ['-x', 'Google Chrome'], { encoding: 'utf8' });
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+}
+
+function findChromeWin(): string {
+  const candidates = [
+    path.join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['LOCALAPPDATA'] ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  ];
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) throw new Error('Google Chrome not found. Install Chrome or check the path in scripts/dev.ts');
+  return found;
+}
+
 function startChromeCdp(): void {
   fs.mkdirSync(path.dirname(launchLog), { recursive: true });
   fs.writeFileSync(launchLog, `--- launch ${new Date().toISOString()} ---\n`);
 
   if (isWin) {
-    const script = path.join(__dirname, 'launch-chrome-cdp.ps1');
-    const logFd = fs.openSync(launchLog, 'a');
-    spawn(
-      'powershell',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script],
-      { detached: true, stdio: ['ignore', logFd, logFd], cwd: root },
-    ).unref();
+    const chromePath = findChromeWin();
+    const port = process.env['BROWSER_CDP_PORT'] ?? '9222';
+    const profile = process.env['BROWSER_CHROME_PROFILE'] ?? 'Default';
+    const rawDataDir = process.env['BROWSER_CHROME_USER_DATA_DIR'] ?? './storage/browser/chrome-cdp-data';
+    const userDataDir = path.isAbsolute(rawDataDir) ? rawDataDir : path.join(root, rawDataDir);
+    const startUrl = process.env['DIGITIFY_BASE_URL'] ?? 'https://desk.digitify.app/payment';
+
+    fs.appendFileSync(launchLog, `chrome: ${chromePath}\nprofile: ${userDataDir}/${profile}\n`);
+
+    const child = spawn(
+      chromePath,
+      [
+        `--remote-debugging-port=${port}`,
+        `--user-data-dir=${userDataDir}`,
+        `--profile-directory=${profile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        startUrl,
+      ],
+      { detached: true, stdio: 'ignore' },
+    );
+    child.unref();
+    fs.appendFileSync(launchLog, `pid: ${child.pid}\n`);
     return;
   }
 
@@ -91,7 +127,12 @@ async function waitForCdp(maxSeconds = 90): Promise<void> {
 if (await isCdpReady()) {
   console.log(`CDP already running at ${cdpUrl} — reusing session`);
 } else {
-  console.log('Starting Chrome with CDP…');
+  if (isChromeRunning()) {
+    console.log('Chrome is running without CDP — closing it and relaunching with CDP…');
+    await killChrome();
+  } else {
+    console.log('Starting Chrome with CDP…');
+  }
   startChromeCdp();
   await waitForCdp();
 }
